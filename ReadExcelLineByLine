@@ -1,0 +1,215 @@
+package uploadTestCase;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+
+import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.chrome.ChromeDriver;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.support.ui.Select;
+
+public class UploadTestCaseToDjango {
+	public static int S_UPLOAD_COUNT;
+	public static int F_UPLOAD_COUNT;
+	public static List<String> S_ROW_DETAILS = new ArrayList<String>();
+	public static List<String> F_ROW_DETAILS = new ArrayList<String>();
+	static WebDriver driver;
+
+	static String appURL = "";
+	public static String coreOrApi = "API"; // 
+
+	public static void main(String[] args) throws InterruptedException, IOException {
+
+		try {
+			S_UPLOAD_COUNT = 0;
+			F_UPLOAD_COUNT = 0;
+			lunchBrowser();
+			Map<Integer, Map<String, String>> outerMap = getData();
+			for (Entry<Integer, Map<String, String>> map : outerMap.entrySet()) {
+				String val = map.getValue().get("ToBeUploaded");
+				if (val.equalsIgnoreCase("Y")) {
+					addTestCases(map.getValue());
+					System.out.println(map.getValue());
+					System.out.println("----------------------------------------------------------------");
+				}
+			}
+			closeBrowser();
+		} catch (Exception e) {
+			e.printStackTrace();
+
+		} finally {
+			closeBrowser();
+			System.out.println("#######################################################################");
+			System.out.println("----------------UPLOADED SUCCESSFULLY-----------------------");
+			System.out.println("Total Uploaded count : " + S_UPLOAD_COUNT);
+			System.out.println("Total Uploaded row details : " + S_ROW_DETAILS + "\n\n");
+			System.out.println("#######################################################################");
+			System.out.println("----------------FAILED TO UPLOAD -----------------------");
+			System.out.println("Failed to upload count : " + F_UPLOAD_COUNT);
+			System.out.println("Failed to upload row details : " + F_ROW_DETAILS + "\n\n");
+		}
+	}
+
+	public static Map<Integer, Map<String, String>> getData() throws IOException {
+		String sheetName = "";
+		if (coreOrApi.equalsIgnoreCase("CORE"))
+			sheetName = "CoreTestCase";
+		else
+			sheetName = "ApiTestCase";
+		int id = 0;
+		Map<Integer, Map<String, String>> excelData = new HashMap<Integer, Map<String, String>>();
+		String path = System.getProperty("user.dir") + "/TestCaseMapping.xlsx";
+		File file = new File(path);
+		FileInputStream inputStream = null;
+		try {
+			inputStream = new FileInputStream(file);
+			Workbook workbook = WorkbookFactory.create(inputStream);
+			Sheet sheet = workbook.getSheet(sheetName);
+			int rowCount = sheet.getLastRowNum();
+			for (int i = 1; i <= rowCount; i++) {
+				Row row = sheet.getRow(0);
+				Map<String, String> rowData = new HashMap<>();
+				for (int j = 0; j < row.getLastCellNum(); j++) {
+
+					String key = row.getCell(j).getStringCellValue();
+					String value = sheet.getRow(i).getCell(j).getStringCellValue();
+					id = i;
+					rowData.put(key, value);
+				}
+				excelData.put(id, rowData);
+			}
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (InvalidFormatException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			inputStream.close();
+		}
+		return excelData;
+	}
+
+	public static void coreTestCases(Map<String, String> inputData) {
+		try {
+			driver.get(appURL + "/addtc/");
+			Select country = new Select(driver.findElement(By.id("id_countryname")));
+			country.selectByVisibleText(inputData.get("Country Name"));
+			Select moduleName = new Select(driver.findElement(By.id("id_modulename")));
+			moduleName.selectByVisibleText(inputData.get("Module Name"));
+			Select screenName = new Select(driver.findElement(By.id("id_Screenname")));
+			screenName.selectByVisibleText(inputData.get("Screen Name"));
+			Select screenType = new Select(driver.findElement(By.id("id_Screentype")));
+			screenType.selectByVisibleText(inputData.get("Screen Type"));
+			Select bpMap = new Select(driver.findElement(By.id("id_bpnamemap")));
+			bpMap.selectByVisibleText(inputData.get("BP Name Mapping"));
+			driver.findElement(By.id("id_Tc_Desc")).sendKeys(inputData.get("Test Case Description"));
+			driver.findElement(By.id("id_Expected_Results")).sendKeys(inputData.get("Expected Result"));
+			Select priority = new Select(driver.findElement(By.id("id_Tc_Priority")));
+			priority.selectByVisibleText(inputData.get("Priority"));
+			Select author = new Select(driver.findElement(By.id("id_author")));
+			author.selectByVisibleText(inputData.get("Author"));
+			String isAutomated = inputData.get("Automated(Y/N)");
+			if (isAutomated.equalsIgnoreCase("Y"))
+				driver.findElement(By.id("id_Automated")).click();
+			driver.findElement(By.id("id_effortspentforscriptdev")).sendKeys(inputData.get("Automation Effort"));
+			driver.findElement(By.id("id_effortrequiredtoexecute")).sendKeys(inputData.get("Execution Effort"));
+			driver.findElement(By.xpath("//*[@type='submit' and contains(text(),'Add Test Case ')]")).click();
+			Thread.sleep(3000);
+			successStatus(inputData.get("SL No"));
+		} catch (Exception e) {
+			System.out.println("Issue in uploading test case : " + inputData.get("SL No"));
+			failedStatus(inputData.get("SL No"));
+			System.out.println(e.getMessage());
+		}
+	}
+
+	public static void apiTestCases(Map<String, String> inputData) {
+		try {
+			driver.get(appURL + "/addinttc/");
+			Select country = new Select(driver.findElement(By.id("id_countryname")));
+			country.selectByVisibleText(inputData.get("Country Name"));
+			Select apiResource = new Select(driver.findElement(By.id("id_apiresources")));
+			apiResource.selectByVisibleText(inputData.get("Api Resource"));
+			Select apiMethod = new Select(driver.findElement(By.id("id_apimethods")));
+			apiMethod.selectByVisibleText(inputData.get("Api Method"));
+			Select interfaceName = new Select(driver.findElement(By.id("id_interface")));
+			interfaceName.selectByVisibleText(inputData.get("Interface"));
+			Select interfaceType = new Select(driver.findElement(By.id("id_interfacetypes")));
+			interfaceType.selectByVisibleText(inputData.get("Interface Type"));
+			Select bpMap = new Select(driver.findElement(By.id("id_bpnamemap")));
+			bpMap.selectByVisibleText(inputData.get("BP Name Mapping"));
+			driver.findElement(By.id("id_Tcid")).sendKeys(inputData.get("Test Case Id"));
+			driver.findElement(By.id("id_Tc_Desc")).sendKeys(inputData.get("Test Case Description"));
+			driver.findElement(By.id("id_Expected_Results")).sendKeys(inputData.get("Expected Result"));
+			Select priority = new Select(driver.findElement(By.id("id_Tc_Priority")));
+			priority.selectByVisibleText(inputData.get("Priority"));
+			Select author = new Select(driver.findElement(By.id("id_author")));
+			author.selectByVisibleText(inputData.get("Author"));
+			driver.findElement(By.xpath("//*[@type='submit' and contains(text(),'Add Test Case ')]")).click();
+			Thread.sleep(3000);
+			successStatus(inputData.get("SL No"));
+		} catch (Exception e) {
+			System.out.println("Issue in uploading test case : " + inputData.get("SL No"));
+			failedStatus(inputData.get("SL No"));
+			System.out.println(e.getMessage());
+		}
+	}
+
+	public static void addTestCases(Map<String, String> inputData) throws InterruptedException {
+		if (coreOrApi.equalsIgnoreCase("CORE"))
+			coreTestCases(inputData);
+		else
+			apiTestCases(inputData);
+
+	}
+
+	public static void successStatus(String rowNumber) {
+		S_UPLOAD_COUNT += 1;
+		S_ROW_DETAILS.add(rowNumber);
+	}
+
+	public static void failedStatus(String rowNumber) {
+		F_UPLOAD_COUNT += 1;
+		F_ROW_DETAILS.add(rowNumber);
+	}
+
+	public static void lunchBrowser() throws InterruptedException {
+		// System.out.println(System.getProperty("user.home"));
+		String systemPath = System.getProperty("user.dir");
+		String driverPath = "\\driver\\chrome\\chromedriver.exe";
+		System.setProperty("webdriver.chrome.driver", systemPath + driverPath);
+		ChromeOptions options = new ChromeOptions();
+		// options.addArguments("--headless");
+		options.addArguments("start-maximized"); // open Browser in maximized
+													// mode
+		options.addArguments("disable-infobars"); // disabling infobars
+		options.addArguments("--disable-extensions"); // disabling extensions
+		options.addArguments("--disable-gpu"); // applicable to windows os only
+		options.addArguments("--disable-dev-shm-usage"); // overcome limited
+															// resource problems
+		options.addArguments("--no-sandbox"); // Bypass OS security model
+		options.setExperimentalOption("useAutomationExtension", false);
+		driver = new ChromeDriver(options);
+		// driver.manage().window().maximize();
+
+	}
+
+	public static void closeBrowser() {
+		driver.quit();
+	}
+}
