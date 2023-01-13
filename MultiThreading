@@ -1,0 +1,287 @@
+package edmiapi.sanity;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Hashtable;
+import java.util.Scanner;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Source;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.stream.StreamResult;
+import javax.xml.transform.stream.StreamSource;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.config.Registry;
+import org.apache.http.config.RegistryBuilder;
+import org.apache.http.conn.socket.ConnectionSocketFactory;
+import org.apache.http.conn.socket.PlainConnectionSocketFactory;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.conn.PoolingHttpClientConnectionManager;
+import org.apache.http.ssl.SSLContextBuilder;
+import org.apache.http.ssl.TrustStrategy;
+import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+public class InterfaceHealthCheck implements Runnable {
+
+	static final Logger logger = LogManager.getLogger(InterfaceHealthCheck.class);
+	public static Hashtable<String, String> responseDetails = new Hashtable<>();
+	
+	// public static String EDMI_INT =
+	// "https://gorest.co.in/public/v2/users";
+	// //SG PT
+	// public static String API_PAYMT =
+	// "https://gorest.co.in/public/v2/users";
+	// //SG PT
+	public static String EDMI_INT = "https://gorest.co.in/public/v2/users";// 
+																																	// SIT
+	public static String API_PAYMT = "https://gorest.co.in/public/v2/users"// 
+																																											// SIT
+	static String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36";
+	static int API_RESPONSE_CODE, EDMI_RESPONSE_CODE;
+	static String TEMP_EXTSYSKEY, NEW_EXTSYSKEY;
+	public static int NO_Of_RUN = 1000;
+	Thread postRequestThread;
+	private String serviceName;
+
+	InterfaceHealthCheck(String name) {
+		serviceName = name;
+	}
+
+	public static void main(String[] args) {
+
+		InterfaceHealthCheck edmi = new InterfaceHealthCheck("EDMI");
+		InterfaceHealthCheck edmi2 = new InterfaceHealthCheck("EDMI");
+		InterfaceHealthCheck api = new InterfaceHealthCheck("API");
+		InterfaceHealthCheck api2 = new InterfaceHealthCheck("API");
+		edmi.start();
+		api.start();
+		edmi2.start();
+		api2.start();
+
+	}
+
+	public void postTransaction() throws Exception {
+		System.out.println("serviceName:" + serviceName);
+		if (serviceName.equalsIgnoreCase("EDMI")) {
+			Thread.sleep(10);
+			responseDetails = postSoapRequest();
+		} else if (serviceName.equalsIgnoreCase("API"))
+			postApiGetRequest();
+	}
+
+	public static void postApiGetRequest() throws Exception {
+		API_RESPONSE_CODE=2222;
+		HttpsURLConnection conn = null;
+		try {
+
+			URL url = new URL(API_PAYMT);
+			conn = (HttpsURLConnection) url.openConnection();
+			TrustManager[] trustAllCerts = new TrustManager[] { new X509TrustManager() {
+				public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+					return null;
+				}
+
+				public void checkClientTrusted(X509Certificate[] certs, String authType) {
+				}
+
+				public void checkServerTrusted(X509Certificate[] certs, String authType) {
+				}
+			} };
+			SSLContext sc = SSLContext.getInstance("SSL");
+			sc.init(null, trustAllCerts, new java.security.SecureRandom());
+			HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+			HostnameVerifier allHostsValid = new HostnameVerifier() {
+				public boolean verify(String hostname, SSLSession session) {
+					return true;
+				}
+			};
+			HttpsURLConnection.setDefaultHostnameVerifier(allHostsValid);
+			conn = (HttpsURLConnection) url.openConnection();
+			conn.setRequestMethod("GET");
+			conn.setRequestProperty("User-Agent", USER_AGENT);
+			conn.setRequestProperty("message-Sender", "GPAY");
+			conn.setRequestProperty("request-country", "IN");
+			conn.setUseCaches(false);// messageSender
+
+			API_RESPONSE_CODE = conn.getResponseCode();
+
+			BufferedReader in = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+			String inputLine;
+			StringBuffer response = new StringBuffer();
+			while ((inputLine = in.readLine()) != null) {
+				response.append(inputLine);
+			}
+			in.close();
+			System.out.println("Api res :\n" + response);
+			/* int statusLine = conn.getResponseCode(); */
+			conn.disconnect();
+		} catch (Exception ex) {
+			System.out.println("Exception occured");
+			ex.printStackTrace();
+		} finally {
+			if (conn != null)
+				conn.disconnect();
+			logger.info("API_Status:  " + API_RESPONSE_CODE);
+		}
+
+	}
+
+	public Hashtable<String, String> postSoapRequest() throws IOException {
+		EDMI_RESPONSE_CODE= 1111;
+/*		DateFormat dateformat = new SimpleDateFormat("yyyyMMddHHMMssSS");
+		Date da = new Date();
+		String currentDateTime = dateformat.format(da);*/
+		long time1 = System.nanoTime();
+		String soapMSG = null;
+		soapMSG = new String(Files.readAllBytes(Paths.get(System.getProperty("user.dir") + "/Sanity/edmi_request.xml")),
+				StandardCharsets.UTF_8);
+		Hashtable<String, String> soapResponse = new Hashtable<>();
+		if (soapMSG != null) {
+			System.out.println(Long.toString(time1));
+			soapMSG = soapMSG.replace("{{externalsysKey}}", Long.toString(time1));
+			System.out.println(soapMSG);
+			try {
+				HttpClient httpclient = CreateHttpClient_AcceptsUntrustedCerts();
+				HttpPost post = new HttpPost(EDMI_INT);
+				String data = new Scanner(soapMSG).useDelimiter("//A").next();
+				// logger.info("Request XML..");
+				// logger.info(data);
+				HttpEntity enty = new StringEntity(data);
+				post.setEntity(enty);
+				post.addHeader("Content-Type", "text/xml; charset=utf-8");
+				post.addHeader("Accept", "text/xml");
+
+				HttpResponse Response = httpclient.execute(post);
+				HttpEntity resEnty = Response.getEntity();
+				String responseMessage = EntityUtils.toString(resEnty);
+				EDMI_RESPONSE_CODE = Response.getStatusLine().getStatusCode();
+				System.out.println(Response.getStatusLine().getStatusCode());
+				System.out.println("Edmi res: \n" + responseMessage);
+			} catch (Exception e) {
+				System.out.println(e.getMessage());
+			} finally {
+				logger.info("EDMI_Status: " + EDMI_RESPONSE_CODE);
+				try {
+				} catch (Exception e) {
+
+				}
+
+			}
+		}
+		return soapResponse;
+	}
+
+	public HttpClient CreateHttpClient_AcceptsUntrustedCerts()
+			throws KeyManagementException, NoSuchAlgorithmException, KeyStoreException {
+		HttpClientBuilder b = HttpClientBuilder.create();
+
+		// setup a Trust Strategy that allows all certificates.
+		//
+		SSLContext sslContext = new SSLContextBuilder().loadTrustMaterial(null, new TrustStrategy() {
+			@Override
+			public boolean isTrusted(X509Certificate[] arg0, String arg1) throws CertificateException {
+				return true;
+			}
+		}).build();
+		b.setSslcontext(sslContext);
+
+		// don't check Hostnames, either.
+		// -- use SSLConnectionSocketFactory.getDefaultHostnameVerifier(), if
+		// you don't want to weaken
+		HostnameVerifier hostnameVerifier = SSLConnectionSocketFactory.ALLOW_ALL_HOSTNAME_VERIFIER;
+
+		// here's the special part:
+		// -- need to create an SSL Socket Factory, to use our weakened "trust
+		// strategy";
+		// -- and create a Registry, to register it.
+		//
+		SSLConnectionSocketFactory sslSocketFactory = new SSLConnectionSocketFactory(sslContext, hostnameVerifier);
+		Registry<ConnectionSocketFactory> socketFactoryRegistry = RegistryBuilder.<ConnectionSocketFactory>create()
+				.register("http", PlainConnectionSocketFactory.getSocketFactory()).register("https", sslSocketFactory)
+				.build();
+
+		// now, we create connection-manager using our Registry.
+		// -- allows multi-threaded use
+		PoolingHttpClientConnectionManager connMgr = new PoolingHttpClientConnectionManager(socketFactoryRegistry);
+		b.setConnectionManager(connMgr);
+
+		// finally, build the HttpClient;
+		// -- done!
+		HttpClient client = b.build();
+		return client;
+	}
+
+	public String prettyFormat(String input, int indent) {
+		try {
+			Source xmlInput = new StreamSource(new StringReader(input));
+			StringWriter stringWriter = new StringWriter();
+			StreamResult xmlOutput = new StreamResult(stringWriter);
+			TransformerFactory transformerFactory = TransformerFactory.newInstance();
+			transformerFactory.setAttribute("indent-number", indent);
+			Transformer transformer = transformerFactory.newTransformer();
+			transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+			transformer.transform(xmlInput, xmlOutput);
+			return xmlOutput.getWriter().toString();
+		} catch (Exception e) {
+			throw new RuntimeException(e); // simple exception handling, please
+											// review it
+		}
+	}
+
+	@Override
+	public void run() {
+		System.out.println("Thread running" + serviceName);
+		for (int i = 1; i <= NO_Of_RUN; i++) {
+			try {
+				postTransaction();
+			} catch (Exception e1) {
+
+				e1.printStackTrace();
+			}
+			System.out.println(serviceName + "-" + i);
+			try {
+				Thread.sleep(10);
+			} catch (InterruptedException e) {
+				System.out.println("Thread has been interrupted");
+			}
+		}
+	}
+
+	public void start() {
+		System.out.println("Thread started");
+		if (postRequestThread == null) {
+			postRequestThread = new Thread(this, serviceName);
+			postRequestThread.start();
+		}
+	}
+}
