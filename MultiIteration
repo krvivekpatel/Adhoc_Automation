@@ -1,0 +1,180 @@
+package risk;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Hashtable;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Scanner;
+import java.util.Map.Entry;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.scb.edmi.support.ConstNGobalVariable;
+import com.scb.edmi.support.DBConnectionHelper;
+import com.scb.edmi.support.SoapClient;
+
+public class BulkRiskRemoval {
+	private static final Logger logger = LogManager.getLogger(BulkRiskRemoval.class);
+	Hashtable<String, String> responseDetails = new Hashtable<>();
+	SoapClient soapObj = new SoapClient();
+	Properties env = new Properties();
+	Properties query = new Properties();
+	public static String country_environment;
+	static final String DB_USERNAME = "";
+	static final String DB_PASSWORD = "";
+	static String EDMI_ENDPOINT;
+	static String DB_CONN_STR;
+	static Map<String, String> TRANSACTION_POSTING_PARAM;
+	static List<String> accountno;
+	static String riskQuery = "SELECT * FROM db2inst1.test where  testingno = ?";
+
+	public void loadEnvPropFile() {
+
+		String envFilePath = System.getProperty("user.dir") + "/Config/Environment.Properties";
+		String dbQueryFilePath = System.getProperty("user.dir") + "/Config/DBQuery.Properties";
+		try {
+			env.load(new FileInputStream(envFilePath));
+			query.load(new FileInputStream(dbQueryFilePath));
+			logger.info("Property file loaded");
+		} catch (FileNotFoundException e) {
+
+			e.printStackTrace();
+		} catch (IOException e) {
+
+			e.printStackTrace();
+		}
+	}
+
+	public static void getRiskDetails(String query) {
+
+		switch (country_environment.toUpperCase()) {
+		case "SG_OAT":
+			EDMI_ENDPOINT = "";
+			DB_CONN_STR = "";
+			break;
+		case "SG_SIT":
+			EDMI_ENDPOINT = "";
+			DB_CONN_STR = "";
+			break;
+		case "SG_UAT":
+			EDMI_ENDPOINT = "";
+			DB_CONN_STR = "";
+			break;
+		case "MY_SIT":
+			EDMI_ENDPOINT = "";
+			DB_CONN_STR = "";
+			break;
+		case "MY_UAT":
+			EDMI_ENDPOINT = "";
+			DB_CONN_STR = "";
+			break;
+		default:
+			logger.error("Invalid Environment details");
+			System.exit(0);
+			break;
+		}
+
+		DBConnectionHelper dbConnection = new DBConnectionHelper(DB_USERNAME, DB_PASSWORD, DB_CONN_STR);
+		BulkRiskRemoval bulkRiskRemoval = new BulkRiskRemoval();
+		bulkRiskRemoval.loadEnvPropFile();
+
+		accountno = readTxtFile();
+
+		for (String acc : accountno) {
+			List<Map<String, String>> list = dbConnection.fetchDBResultSet(query,acc);
+			System.out.println(acc);
+			HashMap<String, String> inputData = new HashMap<String, String>();
+			// rskindOutput.forEach(item -> item.forEach((k, v) ->
+			// System.out.println(k + ": " + v)));
+
+			for (Map<String, String> map : list) {
+				inputData.clear();
+				for (Entry<String, String> entry : map.entrySet()) {
+					// System.out.println(entry.getKey() + " - " +
+					// entry.getValue());
+					// System.out.println(map);
+
+					inputData.put(entry.getKey(), entry.getValue());
+				}
+				System.out.println("----------------------------------------------------------------");
+				bulkRiskRemoval.postRequest(inputData);
+			}
+			
+			inputData.clear();
+		}
+		
+	}
+
+	public void postRequest(HashMap<String, String> inputData) {
+		env.setProperty("Url", EDMI_ENDPOINT);
+		SoapClient soapObj = new SoapClient();
+		responseDetails = soapObj.postSoapRequest(env, "RemoveRisk", inputData);
+		if (!responseDetails.isEmpty()) {
+			if (responseDetails.get("StatusCode").equalsIgnoreCase("200")) {
+				// System.out.println("Success");
+				String statusCode = soapObj.xmlRead(responseDetails.get("responseXML").toString(), "Status/Code");
+				String statusDescription = soapObj.xmlRead(responseDetails.get("responseXML").toString(),
+						"Status/Desc");
+				if (statusCode.equals("000")) {
+					logger.info("Risk Removed,Status-" + statusCode + " Desc-" + statusDescription);
+				} else {
+					logger.error("Risk Removal failed..Response Desc-" + statusDescription);
+				}
+			}
+		} else {
+			logger.error("Risk Removal failed");
+		}
+	}
+
+	public static List<String> readTxtFile() {
+		List<String> account = new ArrayList<String>();
+		String filePath = System.getProperty("user.dir") + "/Config/BulkRiskRemoval.txt";
+
+		try {
+			Scanner scanner = new Scanner(new File(filePath));
+
+			while (scanner.hasNextLine()) {
+				// System.out.println(scanner.nextLine());
+				account.add(scanner.nextLine());
+			}
+			scanner.close();
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		}
+
+		return account;
+	}
+
+	public void writeData(String data) {
+		//String filePath = System.getProperty("user.dir") + "/Log/BulkTrnPosting.txt";
+		String filePath = "C:\\Users\\\\workspace_Neon\\TestDataGenerator\\Config\\BulkRiskRemoval.txt";
+		File file = new File(filePath);
+		try (FileWriter fw = new FileWriter(file, true);
+				BufferedWriter bw = new BufferedWriter(fw);
+				PrintWriter out = new PrintWriter(bw)) {
+			out.println(data);
+		} catch (IOException e) {
+			logger.error("Issue in writeData");
+			logger.error(e.getMessage());
+		}
+	}
+
+	public static void main(String[] args) {
+		country_environment = "SG_OAT";
+		getRiskDetails(riskQuery);
+
+	}
+
+}
