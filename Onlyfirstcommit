@@ -1,0 +1,42 @@
+#!/bin/bash
+
+# ========== CONFIGURATION ==========
+SOURCE_REPO_URL="<your-original-repo-url>"
+BRANCH_NAME="<your-branch-name>"           # e.g., main or develop
+NEW_REPO_URL="<your-new-repo-url>"
+TEMP_DIR="jira-first-commit-rewrite"
+JIRA_KEY="[JIRA-123]"                      # <-- Your Jira key
+# ===================================
+
+echo "Cloning only branch '$BRANCH_NAME' from $SOURCE_REPO_URL ..."
+git clone --branch "$BRANCH_NAME" --single-branch "$SOURCE_REPO_URL" "$TEMP_DIR"
+cd "$TEMP_DIR" || exit 1
+
+# Identify the first commit
+FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+
+echo "First commit: $FIRST_COMMIT"
+
+# Create a new orphan branch to rebuild history
+git checkout --orphan rewrite-root "$FIRST_COMMIT"
+git commit --allow-empty -m "$JIRA_KEY Initial placeholder root commit"
+git cherry-pick "$FIRST_COMMIT"
+
+# Amend the cherry-picked first commit to add the Jira key
+git commit --amend -m "$JIRA_KEY $(git log -1 --pretty=%s HEAD)"
+
+# Rebase the rest of the commits onto this rewritten base
+git rebase --onto HEAD "$FIRST_COMMIT" "$BRANCH_NAME"
+
+# Replace original branch with rewritten one
+git branch -D "$BRANCH_NAME"
+git branch -m "$BRANCH_NAME"
+
+# Set up new remote and push
+git remote remove origin
+git remote add origin "$NEW_REPO_URL"
+
+echo "Pushing rewritten branch '$BRANCH_NAME' to $NEW_REPO_URL ..."
+git push -u origin "$BRANCH_NAME" --force
+
+echo "✅ Done. Only the first commit now includes the Jira key: $JIRA_KEY"
