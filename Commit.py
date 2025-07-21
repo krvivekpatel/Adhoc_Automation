@@ -4,11 +4,11 @@ import sys
 import shutil
 
 # ========== CONFIGURATION ==========
-SOURCE_REPO_URL = "git@yourdomain.com:your/source-repo.git"
-BRANCH_NAME = "feature/your-branch-name"
-NEW_REPO_URL = "git@yourdomain.com:your/new-repo.git"
+SOURCE_REPO_URL = "ssh://git@bitbucket.cib.echonet:7999/collateralcib/collateral-tcoe-qa-automation.git"
+BRANCH_NAME = "feature/collateral-automation"
+NEW_REPO_URL = "ssh://git@bitbucket.cib.echonet:7999/collateralcib/selenium-automation.git"
 TEMP_DIR = "jira-rewrite-tmp"
-JIRA_KEY = "[JIRA-123]"
+JIRA_KEY = "[JIRA-123]"  # Change to your real Jira ticket
 # ===================================
 
 def run(cmd, cwd=None, check=True):
@@ -26,14 +26,14 @@ def check_git_filter_repo():
         sys.exit(1)
 
 def clone_branch():
-    """Clone only a specific branch."""
+    """Clone only the target branch."""
     if os.path.exists(TEMP_DIR):
         shutil.rmtree(TEMP_DIR)
     run(f"git clone --branch {BRANCH_NAME} --single-branch {SOURCE_REPO_URL} {TEMP_DIR}")
 
-def create_rewrite_script():
-    """Create a temporary Python script for message rewriting."""
-    script = f"""
+def rewrite_commits():
+    """Run git-filter-repo with an inline callback expression."""
+    message_callback = f"""
 import re
 def callback(message):
     m = message.decode('utf-8')
@@ -41,17 +41,10 @@ def callback(message):
         return ('{JIRA_KEY} ' + m).encode('utf-8')
     return message
 """
-    script_path = os.path.join(TEMP_DIR, "rewrite_commits.py")
-    with open(script_path, "w") as f:
-        f.write(script.strip())
-    return script_path
-
-def rewrite_commits(rewrite_script_path):
-    """Run git-filter-repo with the message callback script."""
-    run(f"git filter-repo --force --message-callback '{rewrite_script_path}'", cwd=TEMP_DIR)
+    run(f'git filter-repo --force --message-callback "{message_callback.strip()}"', cwd=TEMP_DIR)
 
 def push_to_new_repo():
-    """Push the rewritten branch to a new remote repo."""
+    """Push rewritten branch to new remote."""
     run("git remote remove origin", cwd=TEMP_DIR)
     run(f"git remote add origin {NEW_REPO_URL}", cwd=TEMP_DIR)
     run(f"git push --force origin {BRANCH_NAME}", cwd=TEMP_DIR)
@@ -59,10 +52,9 @@ def push_to_new_repo():
 def main():
     check_git_filter_repo()
     clone_branch()
-    script_path = create_rewrite_script()
-    rewrite_commits(script_path)
+    rewrite_commits()
     push_to_new_repo()
-    print("✅ Done. Commits updated and pushed with Jira key where needed.")
+    print("✅ Done. All commits scanned, Jira key added where needed.")
 
 if __name__ == "__main__":
     main()
