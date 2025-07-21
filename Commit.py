@@ -8,7 +8,7 @@ SOURCE_REPO = "ssh://git@bitbucket.cib.echonet:7999/collateralcib/collateral-tco
 BRANCH_NAME = "feature/collateral-automation"
 NEW_REPO = "ssh://git@bitbucket.cib.echonet:7999/collateralcib/selenium-automation.git"
 WORK_DIR = "safe-jira-rewrite"
-JIRA_KEY = "[JIRA-123]"
+JIRA_KEY = "[CMIT-9999]"
 # =====================
 
 def run(cmd, cwd=None, capture_output=False):
@@ -24,58 +24,62 @@ def main():
     if os.path.exists(WORK_DIR):
         shutil.rmtree(WORK_DIR)
 
-    # Step 1: Clone specific branch
     run(f"git clone --branch {BRANCH_NAME} --single-branch {SOURCE_REPO} {WORK_DIR}")
-
     os.chdir(WORK_DIR)
 
-    # Step 2: Find first commit
+    # Get first commit
     first_commit = run("git rev-list --max-parents=0 HEAD", capture_output=True).strip()
     print(f"🟢 First commit hash: {first_commit}")
 
-    # Step 3: Get commit message
-    original_message = run(f"git log -1 --format=%s {first_commit}", capture_output=True).strip()
-    print(f"🟢 Original commit message: {original_message}")
+    # Dump full commit content
+    full_commit = run(f"git cat-file -p {first_commit}", capture_output=True)
+    lines = full_commit.splitlines()
+
+    # Separate header and message
+    header_lines = []
+    message_lines = []
+    blank_found = False
+
+    for line in lines:
+        if not blank_found:
+            if line.strip() == "":
+                blank_found = True
+            header_lines.append(line)
+        else:
+            message_lines.append(line)
+
+    original_message = "\n".join(message_lines).strip()
+    print(f"🟢 Original message: {original_message}")
 
     if JIRA_KEY in original_message:
-        print("✅ Jira key already present. No change needed.")
+        print("✅ Jira key already present. No need to modify.")
         return
 
     new_message = f"{JIRA_KEY} {original_message}"
-    print(f"📝 New message: {new_message}")
 
-    # Step 4: Create new commit object with modified message
-    run(f"git cat-file commit {first_commit} > commit.txt")
-    with open("commit.txt", "r") as f:
-        lines = f.readlines()
+    # Write new commit file
+    with open("new_commit.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(header_lines) + "\n\n" + new_message + "\n")
 
-    # Replace commit message
-    idx = lines.index('\n')
-    lines = lines[:idx+1] + [new_message + '\n']
+    new_commit_sha = run("git hash-object -t commit -w new_commit.txt", capture_output=True).strip()
+    print(f"🆕 New commit created: {new_commit_sha}")
 
-    with open("new_commit.txt", "w") as f:
-        f.writelines(lines)
+    # Replace first commit
+    run(f"git replace {first_commit} {new_commit_sha}")
 
-    # Create new commit object
-    new_commit = run("git hash-object -t commit -w new_commit.txt", capture_output=True).strip()
-    print(f"🆕 New commit hash: {new_commit}")
-
-    # Step 5: Replace first commit with new one
-    run(f"git replace {first_commit} {new_commit}")
-
-    # Step 6: Export and re-import repo (to bake in the change)
-    run("git fast-export --all > repo.export")
+    # Export & re-import full history with updated commit
+    run("git fast-export --all > ../repo.export")
     os.chdir("..")
     shutil.rmtree("final-push", ignore_errors=True)
     run("git init final-push")
     os.chdir("final-push")
-    run("git fast-import < ../safe-jira-rewrite/repo.export")
+    run("git fast-import < ../repo.export")
 
-    # Step 7: Push to new repo
+    # Push to new repo
     run(f"git remote add origin {NEW_REPO}")
     run(f"git push --force origin {BRANCH_NAME}")
 
-    print("\n✅ Done! First commit updated and pushed without conflict.")
+    print("\n✅ First commit updated and pushed successfully!")
 
 if __name__ == "__main__":
     main()
