@@ -2,30 +2,30 @@
 
 # ========== CONFIGURATION ==========
 SOURCE_REPO_URL="<your-original-repo-url>"
-BRANCH_NAME="<your-branch-name>"           # e.g., main or develop
+BRANCH_NAME="<your-branch-name>"            # e.g., main, develop
 NEW_REPO_URL="<your-new-repo-url>"
-TEMP_DIR="jira-branch-rewrite-temp"
-JIRA_KEY="[JIRA-123]"                      # <-- Replace with actual Jira key
+TEMP_DIR="jira-scan-all-rewrite"
+JIRA_KEY="[JIRA-123]"                       # <-- Your Jira key
 # ===================================
 
 echo "Cloning only branch '$BRANCH_NAME' from $SOURCE_REPO_URL ..."
 git clone --branch "$BRANCH_NAME" --single-branch "$SOURCE_REPO_URL" "$TEMP_DIR"
 cd "$TEMP_DIR" || exit 1
 
-echo "Rewriting commit messages in branch '$BRANCH_NAME' ..."
+echo "Rewriting ALL commit messages to add Jira key where needed..."
+
 git filter-repo --force --message-callback "
+import re
 def callback(message):
     m = message.decode('utf-8')
-    if '$JIRA_KEY' not in m:
+    if not re.search(r'(?i)CMIT|QA', m):  # Case-insensitive match
         return ('$JIRA_KEY ' + m).encode('utf-8')
     return message
 "
 
-echo "Initializing new Git remote..."
+echo "Setting new remote and pushing to $NEW_REPO_URL ..."
 git remote remove origin
 git remote add origin "$NEW_REPO_URL"
+git push --force origin "$BRANCH_NAME"
 
-echo "Pushing rewritten branch to $NEW_REPO_URL ..."
-git push -u origin "$BRANCH_NAME" --force
-
-echo "✅ Done. Branch '$BRANCH_NAME' pushed to new repo with Jira keys added."
+echo "✅ Done. All commit messages scanned. Jira key added only where missing."
