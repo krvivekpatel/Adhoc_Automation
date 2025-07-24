@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.5">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="Dynamic User API Flow - Full" enabled="true">
+      <stringProp name="TestPlan.comments"></stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+      <stringProp name="TestPlan.serialize_threadgroups">false</stringProp>
+    </TestPlan>
+    <hashTree>
+
+      <!-- Setup Thread Group -->
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="Setup Thread Group" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <!-- JDBC Connection -->
+        <ConfigTestElement guiclass="TestBeanGUI" testclass="ConfigTestElement" testname="JDBC Connection Configuration" enabled="true">
+          <stringProp name="dataSource">mydb</stringProp>
+          <stringProp name="dbUrl">jdbc:mysql://localhost:3306/testdb</stringProp>
+          <stringProp name="driver">com.mysql.jdbc.Driver</stringProp>
+          <stringProp name="username">root</stringProp>
+          <stringProp name="password">password</stringProp>
+        </ConfigTestElement>
+        <hashTree/>
+        <!-- JDBC Request -->
+        <JDBCRequest guiclass="TestBeanGUI" testclass="JDBCRequest" testname="Get Users from DB" enabled="true">
+          <stringProp name="dataSource">mydb</stringProp>
+          <stringProp name="queryType">Select Statement</stringProp>
+          <stringProp name="query">SELECT user_id, user_name FROM users;</stringProp>
+          <stringProp name="variableNames">user_id,user_name</stringProp>
+          <stringProp name="resultVariable">sqlResult</stringProp>
+        </JDBCRequest>
+        <hashTree>
+          <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Convert SQL Result to JSON" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+import groovy.json.JsonOutput
+def total = vars.get("sqlResult_rowCount") as int
+def list = []
+for (int i = 1; i &lt;= total; i++) {
+  def uid = vars.get("sqlResult_user_id_" + i)
+  def uname = vars.get("sqlResult_user_name_" + i)
+  list &lt;&lt; [user_id: uid, user_name: uname]
+}
+props.put("userDataList", JsonOutput.toJson(list))
+props.put("userCount", total.toString())
+            </stringProp>
+          </JSR223PostProcessor>
+        </hashTree>
+      </hashTree>
+
+      <!-- Main Thread Group -->
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Main Thread Group" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">true</boolProp>
+          <stringProp name="LoopController.loops">-1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">10</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Init Slice for Thread" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="script">
+import groovy.json.JsonSlurper
+def allUsers = new JsonSlurper().parseText(props.get("userDataList"))
+def totalUsers = props.get("userCount") as int
+def totalThreads = ctx.getThreadGroup().getNumThreads()
+def threadIndex = ctx.getThreadNum()
+def perThread = totalUsers.intdiv(totalThreads)
+def remainder = totalUsers % totalThreads
+def start = threadIndex * perThread + Math.min(threadIndex, remainder)
+def end = start + perThread - 1
+if (threadIndex &lt; remainder) end += 1
+def userSlice = allUsers[start..&lt;Math.min(end+1, allUsers.size())]
+vars.putObject("userSlice", userSlice)
+vars.put("sliceIndex", "0")
+          </stringProp>
+        </JSR223Sampler>
+        <hashTree/>
+
+        <WhileController guiclass="WhileControllerGui" testclass="WhileController" testname="Process Each User" enabled="true">
+          <stringProp name="WhileController.condition">true</stringProp>
+        </WhileController>
+        <hashTree>
+
+          <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="Load User Data" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+def users = vars.getObject("userSlice") as List
+def index = vars.get("sliceIndex") as int
+if (index &gt;= users.size()) {
+  SampleResult.setStopThread(true)
+  return
+}
+def current = users[index]
+vars.put("user_id", current.user_id.toString())
+vars.put("user_name", current.user_name.toString())
+            </stringProp>
+          </JSR223PreProcessor>
+          <hashTree/>
+
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="API 1 - Submit" enabled="true">
+            <stringProp name="HTTPSampler.domain">api.example.com</stringProp>
+            <stringProp name="HTTPSampler.protocol">https</stringProp>
+            <stringProp name="HTTPSampler.path">/submit</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <stringProp name="HTTPSampler.postBodyRaw">true</stringProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <stringProp name="Argument.value">{"userId":"${user_id}","userName":"${user_name}"}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+          </HTTPSamplerProxy>
+          <hashTree/>
+
+          <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Wait for DB Update" enabled="true">
+            <stringProp name="ConstantTimer.delay">3000</stringProp>
+          </ConstantTimer>
+          <hashTree/>
+
+          <JDBCRequest guiclass="TestBeanGUI" testclass="JDBCRequest" testname="Check API 1 Status" enabled="true">
+            <stringProp name="dataSource">mydb</stringProp>
+            <stringProp name="queryType">Select Statement</stringProp>
+            <stringProp name="query">SELECT status FROM api_status WHERE user_id = ${user_id};</stringProp>
+            <stringProp name="variableNames">status</stringProp>
+            <stringProp name="resultVariable">statusResult</stringProp>
+          </JDBCRequest>
+          <hashTree>
+            <JSR223PostProcessor guiclass="TestBeanGUI" testclass="JSR223PostProcessor" testname="Extract Status" enabled="true">
+              <stringProp name="scriptLanguage">groovy</stringProp>
+              <stringProp name="script">
+def status = vars.get("statusResult_status_1") ?: "UNKNOWN"
+vars.put("status", status)
+              </stringProp>
+            </JSR223PostProcessor>
+          </hashTree>
+
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="API 2 - Update Status" enabled="true">
+            <stringProp name="HTTPSampler.domain">api.example.com</stringProp>
+            <stringProp name="HTTPSampler.protocol">https</stringProp>
+            <stringProp name="HTTPSampler.path">/updateStatus</stringProp>
+            <stringProp name="HTTPSampler.method">POST</stringProp>
+            <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <stringProp name="HTTPSampler.postBodyRaw">true</stringProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+              <collectionProp name="Arguments.arguments">
+                <elementProp name="" elementType="HTTPArgument">
+                  <stringProp name="Argument.value">{"userId":"${user_id}","status":"${status}"}</stringProp>
+                  <stringProp name="Argument.metadata">=</stringProp>
+                </elementProp>
+              </collectionProp>
+            </elementProp>
+          </HTTPSamplerProxy>
+          <hashTree/>
+
+          <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Increment Slice Index" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="script">
+def i = vars.get("sliceIndex") as int
+vars.put("sliceIndex", (i + 1).toString())
+            </stringProp>
+          </JSR223Sampler>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
